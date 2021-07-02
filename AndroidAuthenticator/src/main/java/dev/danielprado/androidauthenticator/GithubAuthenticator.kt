@@ -23,8 +23,7 @@ class GithubAuthenticatorDialog(
     private val state: String,
     private val applicationId: String,
     private val applicationSecret: String,
-    private val onTokenObtained: (GithubAuthToken) -> Unit,
-    private val onError: ((String) -> Unit)? = null
+    private val onProcessFinished: (GitHubAuthResult) -> Unit
 ): DialogFragment() {
     private val loginUrl = "https://github.com/login/oauth/authorize"
     private val codeExchangeURL = "https://github.com/login/oauth/access_token"
@@ -69,16 +68,15 @@ class GithubAuthenticatorDialog(
                 outputStream.write(codeExchangeReqBody.toByteArray())
             }
 
-            if (http.responseCode == 200) {
-                val token = Parser().parseCodeExchangeResponse(http.inputStream)
-                withContext(Dispatchers.Main) {
-                    onTokenObtained(token)
-                }
+            val result =
+                if (http.responseCode == 200)
+                    Parser().parseCodeExchangeResponse(http.inputStream)
+                else
+                    GitHubAuthResult.Error(http.responseMessage, null)
+
+            withContext(Dispatchers.Main) {
+                onProcessFinished(result)
             }
-            else
-                withContext(Dispatchers.Main) {
-                    onError?.invoke(http.responseMessage)
-                }
         }
     }
 
@@ -95,7 +93,10 @@ class GithubAuthenticatorDialog(
                         requestToken(uri.getQueryParameter("code")!!)
                     }
                 else
-                    onError?.invoke("State doesn't match: obtained \"$state\" but required \"${this.state}\"")
+                    onProcessFinished(GitHubAuthResult.Error(
+                            "State doesn't match: obtained \"$state\" but required \"${this.state}\"",
+                            url
+                    ))
             }
             finally {
                 dialog?.dismiss()
@@ -106,7 +107,7 @@ class GithubAuthenticatorDialog(
             val error = uri.getQueryParameter("error") ?: "Error"
             val description = uri.getQueryParameter("error_description") ?: "Unknown reason"
             try {
-                onError?.invoke("$error: $description")
+                onProcessFinished(GitHubAuthResult.Error("$error: $description", url))
             }
             finally {
                 dialog?.dismiss()
@@ -114,6 +115,11 @@ class GithubAuthenticatorDialog(
 
         }
     }
+}
+
+sealed class GitHubAuthResult {
+    data class Success(val token: GithubAuthToken): GitHubAuthResult()
+    data class Error(val reason: String, val obtainedResponse: String?): GitHubAuthResult()
 }
 
 private class Parser {
@@ -131,12 +137,20 @@ private class Parser {
 
     fun parseCodeExchangeResponse(stream: InputStream) = parseCodeExchangeResponse(readStream(stream))
 
-    fun parseCodeExchangeResponse(json: String): GithubAuthToken {
+    fun parseCodeExchangeResponse(json: String): GitHubAuthResult {
         val obj = JSONObject(json)
-        return GithubAuthToken(
-                obj["access_token"] as String,
-                (obj["scope"] as String).split(","),
-                obj["token_type"] as String
+        return (
+            if (obj.has("access_token"))
+                GitHubAuthResult.Success(GithubAuthToken(
+                        obj["access_token"] as String,
+                        (obj["scope"] as String).split(","),
+                        obj["token_type"] as String
+                ))
+            else
+                GitHubAuthResult.Error(
+                        obj["error"] as String,
+                        json
+                )
         )
     }
 }

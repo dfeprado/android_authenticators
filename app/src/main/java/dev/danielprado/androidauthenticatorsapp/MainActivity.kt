@@ -4,6 +4,7 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import dev.danielprado.githubcli.GitHubAuthResult
 import dev.danielprado.githubcli.GithubAuthenticatorDialog
 import dev.danielprado.githubcli.GithubAuthToken
 
@@ -13,12 +14,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
     }
 
-    private fun onTokenObtained(token: GithubAuthToken) {
-        Log.i("GITHUB_LOGIN", token.value)
-    }
-
-    private fun onError(reason: String) {
-        Log.i("GITHUB_LOGIN", reason)
+    private fun onLoginProcessEnd(result: GitHubAuthResult) {
+        if (result is GitHubAuthResult.Success)
+            Log.i("GITHUB_LOGIN", "Success: ${result.token.value}")
+        else
+            Log.i("GITHUT_LOGIN", "Error: ${(result as GitHubAuthResult.Error).reason}")
     }
 
     fun onLoginClick(view: View) {
@@ -27,8 +27,7 @@ class MainActivity : AppCompatActivity() {
                 "AndroidGithubAuthenticatorTest",
                 GH_APP_ID,
                 GH_APP_SECRET,
-                ::onTokenObtained,
-                ::onError
+                ::onLoginProcessEnd
         ).show(supportFragmentManager, null);
     }
 }
